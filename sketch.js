@@ -6,7 +6,7 @@ const WIN_SIZE = 4;
 const BORDER_WIDTH = 50;
 const BORDER_HEGITH = 50;
 
-let game = new Game(GAME_WIDTH, GAME_HEIGHT);
+let game = new Game(GAME_WIDTH, GAME_HEIGHT, WIN_SIZE);
 
 function setup() {
     createCanvas(GAME_WIDTH * GRID_SIZE + BORDER_WIDTH * 2, GAME_HEIGHT * GRID_SIZE + BORDER_HEGITH * 2);

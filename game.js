@@ -5,10 +5,18 @@ const Players = {
     Yellow : 'yellow'
 };
 
+const Directions = {
+    Up: [0, 1],
+    Right: [1, 0],
+    UpRight: [1, 1],
+    DownRight: [1, -1]
+};
+
 class Game {
-    constructor(width, height) {
+    constructor(width, height, winSize) {
         this.width = width;
         this.height = height;
+        this.winSize = winSize;
 
         this.data = new Array(this.width + 2);
         for (let col = 0; col < this.width + 2; col ++) {
@@ -32,6 +40,7 @@ class Game {
 
         this.focus = -1;
         this.player = Players.Red;
+        this.winner = Players.None;
     }
 
     setFocus(col) {
@@ -39,16 +48,24 @@ class Game {
     }
 
     place(col) {
+        if (this.winner != Players.None) {
+            return false;
+        }
+
         for (let row = 1; row <= this.height; row ++) {
             if (this.data[col][row] === Players.None) {
                 this.data[col][row] = this.player;
 
-                if (this.player == Players.Red) {
-                    this.player = Players.Yellow;
+                this.eval();
+                if (this.scores[this.player].winSeq != undefined) {
+                    this.winner = this.player;
                 } else {
-                    this.player = Players.Red;
+                    if (this.player == Players.Red) {
+                        this.player = Players.Yellow;
+                    } else {
+                        this.player = Players.Red;
+                    }
                 }
-
                 return true;
             }
         }
@@ -56,6 +73,10 @@ class Game {
     }
 
     undo(col) {
+        if (this.winner != Players.None) {
+            return false;
+        }
+
         for (let row = this.height; row >= 1; row --) {
             if (this.data[col][row] != Players.None) {
                 this.data[col][row] = Players.None;
@@ -67,6 +88,7 @@ class Game {
                 }
             }
 
+            this.eval();
             return true;
         }
 
@@ -75,7 +97,7 @@ class Game {
 
     evalDir(col, row, dir) {
         let p = this.data[col][row];
-        let length = 0;
+        let length = 1;
         let ends = 0;
 
         while (p != Players.Border) {
@@ -88,7 +110,7 @@ class Game {
 
             let pp = p;
             p = this.data[col][row];
-            if (p != Players.None) {
+            if (pp == Players.None) {
                 length = 1;
                 ends = 1;
                 continue;
@@ -99,29 +121,36 @@ class Game {
             }
 
             // calc sequence score
-            let score = Math.pow(10, length) * ends;
-            this.scores[pp].score += score;
-            this.scores[pp].segments.append({
-                row: row,
-                col: col,
-                length: length,
-                ends: ends,
-                score: score
-            });
+            if (length >= this.winSize) {
+                this.scores[pp].winSeq = {
+                    end: {
+                        row: row,
+                        col: col,
+                    },
+                    dir: dir,
+                    length: length,
+                }
+            } else {
+                let score = Math.pow(10, length) * ends;
+                this.scores[pp].score += score;
+                this.scores[pp].segments.push({
+                    end: {
+                        row: row,
+                        col: col,
+                    },
+                    dir: dir,
+                    length: length,
+                    ends: ends,
+                    score: score
+                });
+            }
 
-            length = 0;
+            length = 1;
             ends = 0;
         }
     }
 
     eval() {
-        const dirs = [
-            [0, 1],
-            [1, 1],
-            [1, 0],
-            [1, -1]
-        ];
-
         this.scores[Players.Red] = {
             score : 0,
             segments: []
@@ -131,11 +160,23 @@ class Game {
             segments: []
         };
 
-        for (let dir = 0; dir < 4; dir ++) {
-            for (let row = 1; row <= this.height; row ++) {
-                this.evalDir(1, row, dirs[dir]);
+        for (let col = 1; col <= this.width; col ++) {
+            this.evalDir(col, 1, Directions.Up);
+            this.evalDir(col, 1, Directions.UpRight);
+            this.evalDir(col, this.height, Directions.DownRight);
+        }
+
+        for (let row = 1; row <= this.height; row ++) {
+            this.evalDir(1, row, Directions.Right);
+            if (row > 1) {
+                this.evalDir(1, row, Directions.UpRight);
+            }
+            if (row < this.height) {
+                this.evalDir(1, row, Directions.DownRight);
             }
         }
+
+        console.log(this.scores);
     }
 
     draw(gridSize) {
@@ -156,15 +197,29 @@ class Game {
             }
         }
 
-        if (this.focus != -1) {
-            for (let row = 1; row <= this.height; row ++) {
-                if (this.data[this.focus][row] == Players.None) {
-                    let x = (this.focus - 1) * gridSize + gridSize / 2;
-                    let y = (this.height - row) * gridSize + gridSize / 2;
-                    fill(this.player);
-                    ellipse(x, y, gridSize / 2);
-                    break;
-                }
+        if (this.winner != Players.None) {
+            let x = this.width * gridSize / 2;
+            let y = this.height * gridSize / 2;
+            textAlign(CENTER, CENTER);
+            stroke(this.winner);
+            fill(this.winner);
+            textSize(32);
+            text('Winner', x, y);
+            stroke(0);
+            return;
+        }
+
+        if (this.focus == -1) {
+            return;
+        }
+
+        for (let row = 1; row <= this.height; row ++) {
+            if (this.data[this.focus][row] == Players.None) {
+                let x = (this.focus - 1) * gridSize + gridSize / 2;
+                let y = (this.height - row) * gridSize + gridSize / 2;
+                fill(this.player);
+                ellipse(x, y, gridSize / 2);
+                break;
             }
         }
     }

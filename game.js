@@ -1,6 +1,5 @@
 const Players = {
     Border: 'border',
-    None: 'none',
     Red : 'red',
     Yellow : 'yellow'
 };
@@ -18,84 +17,41 @@ class Game {
         this.height = height;
         this.winSize = winSize;
 
+        this.history = [];
+        this.focus = -1;
+        this.curPlayer = Players.Red;
+        this.prevPlayer = Players.Yellow;
+
+        // For convenience, we add a border around the game board. The border
+        // will be filled with Players.Border. This way, we don't need to check
+        // for the boundaries when checking for winning sequences.
+        // Available cells are from (1, 1) to (width, height), and filled with
+        // null by default.
         this.data = new Array(this.width + 2);
         for (let col = 0; col < this.width + 2; col ++) {
-            this.data[col] = Array.from({length: this.height + 2}, () => Players.Border);
-            if (col >= 1 && col <= this.width) {
-                for (let row = 1; row <= this.height; row ++) {
-                    this.data[col][row] = Players.None;
-                }
+            this.data[col] = new Array(this.height + 2);
+            if (col == 0 || col == this.width + 1) {
+                this.data[col].fill(Players.Border);
+            } else {
+                this.data[col][0] = Players.Border;
+                this.data[col].fill(null, 1, this.height + 1);
+                this.data[col][this.height + 1] = Players.Border;
             }
         }
 
-        this.scores = {};
-        this.scores[Players.Red] = {
-            score : 0,
-            segments: []
-        };
-        this.scores[Players.Yellow] = {
-            score : 0,
-            segments: []
-        };
-
-        this.focus = -1;
-        this.player = Players.Red;
-        this.winner = Players.None;
+        // this.stats always contains the latest game state. It's updated after
+        // each move. It contains the following fields:
+        // - Red: {score, segments}
+        // - Yellow: {score, segments}
+        // - winner: undefined or Players.Red or Players.Yellow
+        // - winSeq: undefined or {end: {row, col}, dir, length}
+        this.stats = this.#check();
     }
 
-    setFocus(col) {
-        this.focus = col;
-    }
-
-    place(col) {
-        if (this.winner != Players.None) {
-            return false;
-        }
-
-        for (let row = 1; row <= this.height; row ++) {
-            if (this.data[col][row] === Players.None) {
-                this.data[col][row] = this.player;
-
-                this.eval();
-                if (this.scores[this.player].winSeq != undefined) {
-                    this.winner = this.player;
-                } else {
-                    if (this.player == Players.Red) {
-                        this.player = Players.Yellow;
-                    } else {
-                        this.player = Players.Red;
-                    }
-                }
-                return true;
-            }
-        }
-        return false;
-    }
-
-    undo(col) {
-        if (this.winner != Players.None) {
-            return false;
-        }
-
-        for (let row = this.height; row >= 1; row --) {
-            if (this.data[col][row] != Players.None) {
-                this.data[col][row] = Players.None;
-
-                if (this.player == Players.Red) {
-                    this.player = Players.Yellow;
-                } else {
-                    this.player = Players.Red;
-                }
-            }
-
-            this.eval();
-            return true;
-        }
-
-        return false;
-    }
-
-    evalDir(col, row, dir) {
+    // Check for winning sequences in the given direction. The stats object is
+    // updated with the new scores and segments. It also updates the winner
+    // field if a winning sequence is found.
+    #checkDir(stats, col, row, dir) {
         let p = this.data[col][row];
         let length = 1;
         let ends = 0;
@@ -110,39 +66,49 @@ class Game {
 
             let pp = p;
             p = this.data[col][row];
-            if (pp == Players.None) {
+            if (!pp) {
                 length = 1;
                 ends = 1;
                 continue;
             }
 
-            if (p == Players.None) {
+            if (!p) {
                 ends ++;
             }
 
-            // calc sequence score
             if (length >= this.winSize) {
-                this.scores[pp].winSeq = {
-                    end: {
-                        row: row,
-                        col: col,
+                // We found a winning sequence. We update the stats object and
+                // give a really high score to the winner.
+                stats[pp].score = Infinity;
+                stats.winner = pp;
+                stats.winSeq = {
+                    start: {
+                        row: row - dir[1] * (length + 1),
+                        col: col - dir[0] * (length + 1),
                     },
                     dir: dir,
                     length: length,
                 }
             } else {
+                // We found a sequence but it's not long enough to win. We give
+                // the sequence a score based on its length and the number of
+                // available ends.
                 let score = Math.pow(10, length) * ends;
-                this.scores[pp].score += score;
-                this.scores[pp].segments.push({
-                    end: {
-                        row: row,
-                        col: col,
-                    },
-                    dir: dir,
-                    length: length,
-                    ends: ends,
-                    score: score
-                });
+                stats[pp].score += score;
+                if (score > 0) {
+                    // We only add the segment to the stats if it's not a dead
+                    // sequence (i.e. score == 0).
+                    stats[pp].segments.push({
+                        start: {
+                            row: row - dir[1] * (length + 1),
+                            col: col - dir[0] * (length + 1),
+                        },
+                        dir: dir,
+                        length: length,
+                        ends: ends,
+                        score: score
+                    });
+                }
             }
 
             length = 1;
@@ -150,149 +116,175 @@ class Game {
         }
     }
 
-    eval() {
-        this.scores[Players.Red] = {
-            score : 0,
-            segments: []
-        };
-        this.scores[Players.Yellow] = {
-            score : 0,
-            segments: []
-        };
+    // Check for winning sequences in all directions. The stats object is
+    // updated with the new scores and segments. It also updates the winner
+    // field if a winning sequence is found.
+    #check() {
+        let stats = {
+            [Players.Red]: {
+                score: 0,
+                segments: []
+            },
+            [Players.Yellow]: {
+                score: 0,
+                segments: []
+            },
+            winner: undefined,
+            winSeq: undefined,
+        }
 
         for (let col = 1; col <= this.width; col ++) {
-            this.evalDir(col, 1, Directions.Up);
-            this.evalDir(col, 1, Directions.UpRight);
-            this.evalDir(col, this.height, Directions.DownRight);
+            this.#checkDir(stats, col, 1, Directions.Up);
+            this.#checkDir(stats, col, 1, Directions.UpRight);
+            this.#checkDir(stats, col, this.height, Directions.DownRight);
         }
 
         for (let row = 1; row <= this.height; row ++) {
-            this.evalDir(1, row, Directions.Right);
+            this.#checkDir(stats, 1, row, Directions.Right);
             if (row > 1) {
-                this.evalDir(1, row, Directions.UpRight);
+                this.#checkDir(stats, 1, row, Directions.UpRight);
             }
             if (row < this.height) {
-                this.evalDir(1, row, Directions.DownRight);
+                this.#checkDir(stats, 1, row, Directions.DownRight);
             }
         }
 
-        console.log(this.scores);
+        return stats;
     }
 
-    draw(gridSize) {
-        rectMode(CENTER);
-        ellipseMode(CENTER);
-        for (let col = 1; col <= this.width; col ++) {
-            for (let row = 1; row <= this.height; row ++) {
-                let x = (col - 1) * gridSize + gridSize / 2;
-                let y = (this.height - row) * gridSize + gridSize / 2;
-
-                noFill();
-                rect(x, y, gridSize);
-
-                if (this.data[col][row] != Players.None) {
-                    fill(this.data[col][row]);
-                }
-                ellipse(x, y, gridSize);
-            }
-        }
-
-        if (this.winner != Players.None) {
-            let x = this.width * gridSize / 2;
-            let y = this.height * gridSize / 2;
-            textAlign(CENTER, CENTER);
-            stroke(this.winner);
-            fill(this.winner);
-            textSize(32);
-            text('Winner', x, y);
-            stroke(0);
-            return;
-        }
-
-        if (this.focus == -1) {
-            return;
-        }
-
-        for (let row = 1; row <= this.height; row ++) {
-            if (this.data[this.focus][row] == Players.None) {
-                let x = (this.focus - 1) * gridSize + gridSize / 2;
-                let y = (this.height - row) * gridSize + gridSize / 2;
-                fill(this.player);
-                ellipse(x, y, gridSize / 2);
-                break;
-            }
-        }
+    score() {
+        return this.stats[Players.Yellow].score - this.stats[Players.Red].score;
     }
 
-    hittest(x, y, gridSize) {
+    winner() {
+        return this.stats.winner;
+    }
+
+    // Set the focus to the given column. The focus is used to highlight the
+    // possible move for the current player.
+    setFocus(col) {
+        this.focus = col;
+    }
+
+    // Get the list of possible moves for the current player.
+    possibleMoves() {
+        const moves = Array.from({length: this.width}, (_, i) => i + 1)
+            .filter(col => !this.data[col][this.height]);
+        return moves;
+    }
+
+    // Make a move at the given column. If the move is valid, the game state is
+    // updated and the method returns true. Otherwise, it returns false.
+    move(col) {
+        const row = this.data[col].indexOf(null);
+        if (row == -1) {
+            return false;
+        }
+
+        this.data[col][row] = this.curPlayer;
+        this.history.push([col, row]);
+        this.stats = this.#check();
+        [this.curPlayer, this.prevPlayer] = [this.prevPlayer, this.curPlayer];
+        return true;
+    }
+
+    // Undo the last move. If the game state is updated, the method returns
+    // true. Otherwise, it returns false.
+    undo() {
+        if (this.history.length == 0) {
+            return false;
+        }
+
+        const [col, row] = this.history.pop();
+        console.assert(
+            this.data[col][row] == this.prevPlayer,
+            `Invalid undo at column ${col}`);
+
+        this.data[col][row] = null;
+        this.stats = this.#check();
+
+        [this.curPlayer, this.prevPlayer] = [this.prevPlayer, this.curPlayer];
+        return true;
+    }
+
+    // Get the column at the given position. If the position is outside the
+    // game board, the method returns -1.
+    hitTest(x, y, gridSize) {
         let col = Math.floor(x / gridSize) + 1;
         if (col < 1 || col > this.width) {
             return -1;
         }
         return col;
     }
-}
-/*
-class Solver {
-    constructor() {
 
-    }
+    // Draw the game board. The method draws the grid, the pieces, the focus and
+    // the winner.
+    draw(gridSize) {
+        rectMode(CENTER);
+        ellipseMode(CENTER);
+        stroke(0);
 
-    solve(game, depth) {
-        if (depth == 0) {
-            let scores = [];
-            for (let col = 1; col <= game.width; col ++) {
-                game.place(col);
-                scores.push([col, game.eval()]);
-                game.undo(col);
+        // Draw the grid and the pieces.
+        for (let col = 1; col <= this.width; col ++) {
+            for (let row = 1; row <= this.height; row ++) {
+                const x = (col - 1) * gridSize + gridSize / 2;
+                const y = (this.height - row) * gridSize + gridSize / 2;
 
+                noFill();
+                rect(x, y, gridSize);
+
+                if (this.data[col][row]) {
+                    fill(this.data[col][row]);
+                }
+                ellipse(x, y, gridSize);
+            }
+        }
+
+        // Draw the winner and the focus.
+        if (this.stats.winner) {
+            // Draw the winning sequence.
+            let {start: {col, row}, dir, length} =
+                this.stats.winSeq;
+
+            fill(0);
+            for (let i = 0; i < length; i ++) {
+                col += dir[0];
+                row += dir[1];
+                const x = (col - 1) * gridSize + gridSize / 2;
+                const y = (this.height - row) * gridSize + gridSize / 2;
+                ellipse(x, y, gridSize / 4);
             }
 
-            return Math.max(scores);
+            // Draw the winner message.
+            const x = this.width * gridSize / 2;
+            const y = this.height * gridSize + gridSize / 2;
+            textAlign(CENTER, CENTER);
+            stroke(this.stats.winner);
+            fill(this.stats.winner);
+            textSize(32);
+            text('Winner', x, y);
+            return;
         }
+
+        if (this.history.length > 0) {
+            // Draw the last move.
+            const [col, row] = this.history.slice(-1)[0];
+            const x = (col - 1) * gridSize + gridSize / 2;
+            const y = (this.height - row) * gridSize + gridSize / 2;
+            fill(0);
+            ellipse(x, y, gridSize / 4);
+        }
+
+        if (this.focus == -1 ||
+            this.data[this.focus][this.height]) {
+            return;
+        }
+
+        // Draw the focus.
+        const row = this.data[this.focus].indexOf(null);
+        const x = (this.focus - 1) * gridSize + gridSize / 2;
+        const y = (this.height - row) * gridSize + gridSize / 2;
+        fill(this.curPlayer);
+        ellipse(x, y, gridSize / 2);
     }
-
-    solve(game, depth) {
-        scores = [];
-        for (let col = 1; col <= game.width; col ++) {
-            scores.append([col, solve(game, depth - 1)]);
-        }
-
-    }
-
-
-
-    solve(game, depth, nodeIndex, isMax, scores) {
-        if (depth == 0) {
-            return scores[nodeIndex];
-        }
-
-        if (isMax) {
-            return Math.max(
-                solve(game, depth - 1, nodeIndex * 2, false, scores)
-            )
-        }
-    }
-
-    int minimax(int depth, int nodeIndex, bool isMax,
-        int scores[], int h)
-{
-// Terminating condition. i.e
-// leaf node is reached
-if (depth == h)
-    return scores[nodeIndex];
-
-//  If current move is maximizer,
-// find the maximum attainable
-// value
-if (isMax)
-   return max(minimax(depth+1, nodeIndex*2, false, scores, h),
-        minimax(depth+1, nodeIndex*2 + 1, false, scores, h));
-
-// Else (If current move is Minimizer), find the minimum
-// attainable value
-else
-    return min(minimax(depth+1, nodeIndex*2, true, scores, h),
-        minimax(depth+1, nodeIndex*2 + 1, true, scores, h));
 }
-*/

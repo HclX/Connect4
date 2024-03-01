@@ -28,7 +28,7 @@ class Solver {
         for (const col of possibleMoves) {
             const valid = game.move(col);
             console.assert(valid, `Invalid move: ${col}`);
-            const [score,] = this.bestMove(
+            const [score,] = this.#bestMove(
                 game, depth - 1, alpha, beta, !doMaxmize);
             game.undo();
 

@@ -2,17 +2,22 @@
 // find the best move for the AI player. The search depth is set to customizable
 // as a constructor parameter.
 class Solver {
-    constructor(searchDepth) {
+    constructor(searchDepth, player) {
         this.searchDepth = searchDepth;
+        this.player = player;
     }
 
     // Find the best move for the current player using the minimax algorithm.
-    #bestMove(game, depth, alpha, beta, doMaxmize) {
+    #bestMove(game, depth, alpha, beta, maximize) {
         // If the search depth is reached or the game is over, return the score
-        if (depth == 0 || game.winner()) {
-            return [game.score(), undefined];
+        if (depth == 0 || game.isOver()) {
+            const s = game.score(this.player);
+            // console.log(`${indent}Leave bestMove, maximize: ${maximize}, score: ${s}`);
+            return [s, undefined];
         }
-        
+        //const indent = '  '.repeat(this.searchDepth - depth);
+        //console.log(`${indent}Entering bestMove, maximize: ${maximize}`);
+
         // Find the best move for the current player. The best move is the one
         // that maximizes the score for the current player and minimizes the
         // score for the opponent. The alpha-beta pruning is used to reduce the
@@ -20,39 +25,41 @@ class Solver {
         // returns true if the first argument is better than the second one.
         // The 'bestScore' and 'bestMove' variables are used to keep track of
         // the best move found so far.
-        const isBetter = doMaxmize ? (a, b) => a > b : (a, b) => a < b;
-        let bestScore = doMaxmize ? -Infinity : Infinity;
+        const isBetter = maximize ? (a, b) => a > b : (a, b) => a < b;
+        let bestScore = maximize ? -Infinity : Infinity;
         let bestMove = undefined;
 
-        const possibleMoves = game.possibleMoves();
-        for (const col of possibleMoves) {
-            const valid = game.move(col);
-            console.assert(valid, `Invalid move: ${col}`);
-            const [score,] = this.#bestMove(
-                game, depth - 1, alpha, beta, !doMaxmize);
+        const moves = game.possibleMoves();
+        for (const m of moves) {
+            //console.log(`${indent}Considering move: ${m}`);
+            game.move(m);
+            const [s,] = 
+                this.#bestMove(game, depth - 1, alpha, beta, !maximize);
             game.undo();
 
-            if (isBetter(score, bestScore)) {
-                [bestScore, bestMove] = [score, col];
+            //console.log(`${indent} move: ${m} returns score: ${s}`);
+            if (isBetter(s, bestScore)) {
+                [bestScore, bestMove] = [s, m];
             }
 
-            if (isBetter(score, alpha)) {
-                alpha = score;
+            if (isBetter(s, alpha)) {
+                alpha = s;
             }
 
             if (beta <= alpha) {
                 break;
             }
         }
+        //console.log(`${indent}Leaving bestMove, bestMove: ${bestMove}, bestScore: ${bestScore}`);
         return [bestScore, bestMove];
     }
 
     // Find the best move for the current player and make the move.
-    solve(game) {
-        const [, col] = this.#bestMove(
+    solve() {
+        const [score, move] = this.#bestMove(
             game, this.searchDepth, -Infinity, Infinity, true);
-        if (col !== undefined) {
-            game.move(col);
+        if (move !== undefined) {
+            game.move(move);
         }
     }
 }
